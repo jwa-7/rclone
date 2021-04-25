@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -20,12 +21,13 @@ import (
 	"github.com/rclone/rclone/cmd/mountlib"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/lib/atexit"
+	"github.com/rclone/rclone/lib/buildinfo"
 	"github.com/rclone/rclone/vfs"
 )
 
 func init() {
 	name := "cmount"
-	cmountOnly := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+	cmountOnly := ProvidedBy(runtime.GOOS)
 	if cmountOnly {
 		name = "mount"
 	}
@@ -34,6 +36,20 @@ func init() {
 		cmd.Aliases = append(cmd.Aliases, "cmount")
 	}
 	mountlib.AddRc("cmount", mount)
+	buildinfo.Tags = append(buildinfo.Tags, "cmount")
+}
+
+// Find the option string in the current options
+func findOption(name string, options []string) (found bool) {
+	for _, option := range options {
+		if option == "-o" {
+			continue
+		}
+		if strings.Contains(option, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // mountOptions configures the options from the command line flags
@@ -104,6 +120,13 @@ func mountOptions(VFS *vfs.VFS, device string, mountpoint string, opt *mountlib.
 	}
 	for _, option := range opt.ExtraFlags {
 		options = append(options, option)
+	}
+	if runtime.GOOS == "darwin" {
+		if !findOption("modules=iconv", options) {
+			iconv := "modules=iconv,from_code=UTF-8,to_code=UTF-8-MAC"
+			options = append(options, "-o", iconv)
+			fs.Debugf(nil, "Adding \"-o %s\" for macOS", iconv)
+		}
 	}
 	return options
 }

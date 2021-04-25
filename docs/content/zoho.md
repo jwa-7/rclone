@@ -76,11 +76,12 @@ y/e/d>
 See the [remote setup docs](/remote_setup/) for how to set it up on a
 machine with no Internet browser available.
 
-Note that rclone runs a webserver on your local machine to collect the
-token as returned from Zoho Workdrive. This only runs from the moment it
-opens your browser to the moment you get back the verification code.
-This is on `http://127.0.0.1:53682/` and this it may require you to
-unblock it temporarily if you are running a host firewall.
+Rclone runs a webserver on your local computer to collect the
+authorization token from Zoho Workdrive. This is only from the moment
+your browser is opened until the token is returned.
+The webserver runs on `http://127.0.0.1:53682/`.
+If local port `53682` is protected by a firewall you may need to temporarily
+unblock the firewall to complete authorization.
 
 Once configured you can then use `rclone` like this,
 
@@ -127,6 +128,26 @@ from filenames during upload.
 
 Here are the standard options specific to zoho (Zoho).
 
+#### --zoho-client-id
+
+OAuth Client Id
+Leave blank normally.
+
+- Config:      client_id
+- Env Var:     RCLONE_ZOHO_CLIENT_ID
+- Type:        string
+- Default:     ""
+
+#### --zoho-client-secret
+
+OAuth Client Secret
+Leave blank normally.
+
+- Config:      client_secret
+- Env Var:     RCLONE_ZOHO_CLIENT_SECRET
+- Type:        string
+- Default:     ""
+
 #### --zoho-region
 
 Zoho region to connect to. You'll have to use the region you organization is registered in.
@@ -148,6 +169,35 @@ Zoho region to connect to. You'll have to use the region you organization is reg
 ### Advanced Options
 
 Here are the advanced options specific to zoho (Zoho).
+
+#### --zoho-token
+
+OAuth Access Token as a JSON blob.
+
+- Config:      token
+- Env Var:     RCLONE_ZOHO_TOKEN
+- Type:        string
+- Default:     ""
+
+#### --zoho-auth-url
+
+Auth server URL.
+Leave blank to use the provider defaults.
+
+- Config:      auth_url
+- Env Var:     RCLONE_ZOHO_AUTH_URL
+- Type:        string
+- Default:     ""
+
+#### --zoho-token-url
+
+Token server url.
+Leave blank to use the provider defaults.
+
+- Config:      token_url
+- Env Var:     RCLONE_ZOHO_TOKEN_URL
+- Type:        string
+- Default:     ""
 
 #### --zoho-encoding
 

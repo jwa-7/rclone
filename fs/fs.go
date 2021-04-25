@@ -3,6 +3,8 @@ package fs
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -121,6 +123,38 @@ func (os Options) Get(name string) *Option {
 		}
 	}
 	return nil
+}
+
+// Overridden discovers which config items have been overridden in the
+// configmap passed in, either by the config string, command line
+// flags or environment variables
+func (os Options) Overridden(m *configmap.Map) configmap.Simple {
+	var overridden = configmap.Simple{}
+	for i := range os {
+		opt := &os[i]
+		value, isSet := m.GetPriority(opt.Name, configmap.PriorityNormal)
+		if isSet {
+			overridden.Set(opt.Name, value)
+		}
+	}
+	return overridden
+}
+
+// NonDefault discovers which config values aren't at their default
+func (os Options) NonDefault(m configmap.Getter) configmap.Simple {
+	var nonDefault = configmap.Simple{}
+	for i := range os {
+		opt := &os[i]
+		value, isSet := m.Get(opt.Name)
+		if !isSet {
+			continue
+		}
+		defaultValue := fmt.Sprint(opt.Default)
+		if value != defaultValue {
+			nonDefault.Set(opt.Name, value)
+		}
+	}
+	return nonDefault
 }
 
 // OptionVisibility controls whether the options are visible in the
@@ -394,6 +428,12 @@ type MimeTyper interface {
 type IDer interface {
 	// ID returns the ID of the Object if known, or "" if not
 	ID() string
+}
+
+// ParentIDer is an optional interface for Object
+type ParentIDer interface {
+	// ParentID returns the ID of the parent directory if known or nil if not
+	ParentID() string
 }
 
 // ObjectUnWrapper is an optional interface for Object
@@ -1199,21 +1239,22 @@ func MustFind(name string) *RegInfo {
 
 // ParseRemote deconstructs a path into configName, fsPath, looking up
 // the fsName in the config file (returning NotFoundInConfigFile if not found)
-func ParseRemote(path string) (fsInfo *RegInfo, configName, fsPath string, err error) {
-	configName, fsPath, err = fspath.Parse(path)
+func ParseRemote(path string) (fsInfo *RegInfo, configName, fsPath string, connectionStringConfig configmap.Simple, err error) {
+	parsed, err := fspath.Parse(path)
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", "", nil, err
 	}
+	configName, fsPath = parsed.Name, parsed.Path
 	var fsName string
 	var ok bool
 	if configName != "" {
 		if strings.HasPrefix(configName, ":") {
 			fsName = configName[1:]
 		} else {
-			m := ConfigMap(nil, configName)
+			m := ConfigMap(nil, configName, parsed.Config)
 			fsName, ok = m.Get("type")
 			if !ok {
-				return nil, "", "", ErrorNotFoundInConfigFile
+				return nil, "", "", nil, ErrorNotFoundInConfigFile
 			}
 		}
 	} else {
@@ -1221,7 +1262,7 @@ func ParseRemote(path string) (fsInfo *RegInfo, configName, fsPath string, err e
 		configName = "local"
 	}
 	fsInfo, err = Find(fsName)
-	return fsInfo, configName, fsPath, err
+	return fsInfo, configName, fsPath, parsed.Config, err
 }
 
 // A configmap.Getter to read from the environment RCLONE_CONFIG_backend_option_name
@@ -1275,6 +1316,10 @@ type setConfigFile string
 
 // Set a config item into the config file
 func (section setConfigFile) Set(key, value string) {
+	if strings.HasPrefix(string(section), ":") {
+		Logf(nil, "Can't save config %q = %q for on the fly backend %q", key, value, section)
+		return
+	}
 	Debugf(nil, "Saving config %q = %q in section %q of the config file", key, value, section)
 	err := ConfigFileSet(string(section), key, value)
 	if err != nil {
@@ -1296,35 +1341,41 @@ func (section getConfigFile) Get(key string) (value string, ok bool) {
 }
 
 // ConfigMap creates a configmap.Map from the *RegInfo and the
-// configName passed in.
+// configName passed in. If connectionStringConfig has any entries (it may be nil),
+// then it will be added to the lookup with the highest priority.
 //
 // If fsInfo is nil then the returned configmap.Map should only be
 // used for reading non backend specific parameters, such as "type".
-func ConfigMap(fsInfo *RegInfo, configName string) (config *configmap.Map) {
+func ConfigMap(fsInfo *RegInfo, configName string, connectionStringConfig configmap.Simple) (config *configmap.Map) {
 	// Create the config
 	config = configmap.New()
 
 	// Read the config, more specific to least specific
 
+	// Config from connection string
+	if len(connectionStringConfig) > 0 {
+		config.AddGetter(connectionStringConfig, configmap.PriorityNormal)
+	}
+
 	// flag values
 	if fsInfo != nil {
-		config.AddGetter(&regInfoValues{fsInfo, false})
+		config.AddGetter(&regInfoValues{fsInfo, false}, configmap.PriorityNormal)
 	}
 
 	// remote specific environment vars
-	config.AddGetter(configEnvVars(configName))
+	config.AddGetter(configEnvVars(configName), configmap.PriorityNormal)
 
 	// backend specific environment vars
 	if fsInfo != nil {
-		config.AddGetter(optionEnvVars{fsInfo: fsInfo})
+		config.AddGetter(optionEnvVars{fsInfo: fsInfo}, configmap.PriorityNormal)
 	}
 
 	// config file
-	config.AddGetter(getConfigFile(configName))
+	config.AddGetter(getConfigFile(configName), configmap.PriorityConfig)
 
 	// default values
 	if fsInfo != nil {
-		config.AddGetter(&regInfoValues{fsInfo, true})
+		config.AddGetter(&regInfoValues{fsInfo, true}, configmap.PriorityDefault)
 	}
 
 	// Set Config
@@ -1340,11 +1391,11 @@ func ConfigMap(fsInfo *RegInfo, configName string) (config *configmap.Map) {
 // found then NotFoundInConfigFile will be returned.
 func ConfigFs(path string) (fsInfo *RegInfo, configName, fsPath string, config *configmap.Map, err error) {
 	// Parse the remote path
-	fsInfo, configName, fsPath, err = ParseRemote(path)
+	fsInfo, configName, fsPath, connectionStringConfig, err := ParseRemote(path)
 	if err != nil {
 		return
 	}
-	config = ConfigMap(fsInfo, configName)
+	config = ConfigMap(fsInfo, configName, connectionStringConfig)
 	return
 }
 
@@ -1362,6 +1413,24 @@ func NewFs(ctx context.Context, path string) (Fs, error) {
 	fsInfo, configName, fsPath, config, err := ConfigFs(path)
 	if err != nil {
 		return nil, err
+	}
+	overridden := fsInfo.Options.Overridden(config)
+	if len(overridden) > 0 {
+		extraConfig := overridden.String()
+		//Debugf(nil, "detected overriden config %q", extraConfig)
+		md5sumBinary := md5.Sum([]byte(extraConfig))
+		suffix := base64.RawStdEncoding.EncodeToString(md5sumBinary[:])
+		// 5 characters length is 5*6 = 30 bits of base64
+		const maxLength = 5
+		if len(suffix) > maxLength {
+			suffix = suffix[:maxLength]
+		}
+		suffix = "{" + suffix + "}"
+		Debugf(configName, "detected overridden config - adding %q suffix to name", suffix)
+		// Add the suffix to the config name
+		//
+		// These need to work as filesystem names as the VFS cache will use them
+		configName += suffix
 	}
 	return fsInfo.NewFs(ctx, configName, fsPath, config)
 }
@@ -1443,11 +1512,16 @@ type logCalculator struct {
 
 // NewPacer creates a Pacer for the given Fs and Calculator.
 func NewPacer(ctx context.Context, c pacer.Calculator) *Pacer {
+	ci := GetConfig(ctx)
+	retries := ci.LowLevelRetries
+	if retries <= 0 {
+		retries = 1
+	}
 	p := &Pacer{
 		Pacer: pacer.New(
 			pacer.InvokerOption(pacerInvoker),
-			pacer.MaxConnectionsOption(GetConfig(ctx).Checkers+GetConfig(ctx).Transfers),
-			pacer.RetriesOption(GetConfig(ctx).LowLevelRetries),
+			pacer.MaxConnectionsOption(ci.Checkers+ci.Transfers),
+			pacer.RetriesOption(retries),
 			pacer.CalculatorOption(c),
 		),
 	}

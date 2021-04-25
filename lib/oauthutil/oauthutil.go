@@ -15,6 +15,7 @@ import (
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config"
 	"github.com/rclone/rclone/fs/config/configmap"
+	"github.com/rclone/rclone/fs/fserrors"
 	"github.com/rclone/rclone/fs/fshttp"
 	"github.com/rclone/rclone/lib/random"
 	"github.com/skratchdot/open-golang/open"
@@ -148,14 +149,8 @@ func PutToken(name string, m configmap.Mapper, token *oauth2.Token, newSection b
 	tokenString := string(tokenBytes)
 	old, ok := m.Get(config.ConfigToken)
 	if !ok || tokenString != old {
-		err = config.SetValueAndSave(name, config.ConfigToken, tokenString)
-		if newSection && err != nil {
-			fs.Debugf(name, "Added new token to config, still needs to be saved")
-		} else if err != nil {
-			fs.Errorf(nil, "Failed to save new token in config file: %v", err)
-		} else {
-			fs.Debugf(name, "Saved new token in config file")
-		}
+		m.Set(config.ConfigToken, tokenString)
+		fs.Debugf(name, "Saved new token in config file")
 	}
 	return nil
 }
@@ -172,28 +167,39 @@ type TokenSource struct {
 	expiryTimer *time.Timer // signals whenever the token expires
 }
 
-// If token has expired then first try re-reading it from the config
-// file in case a concurrently running rclone has updated it already
-func (ts *TokenSource) reReadToken() bool {
-	tokenString, err := config.FileGetFresh(ts.name, config.ConfigToken)
-	if err != nil {
-		fs.Debugf(ts.name, "Failed to read token out of config file: %v", err)
+// If token has expired then first try re-reading it (and its refresh token)
+// from the config file in case a concurrently running rclone has updated them
+// already.
+// Returns whether either of the two tokens has been reread.
+func (ts *TokenSource) reReadToken() (changed bool) {
+	tokenString, found := ts.m.Get(config.ConfigToken)
+	if !found || tokenString == "" {
+		fs.Debugf(ts.name, "Failed to read token out of config file")
 		return false
 	}
 	newToken := new(oauth2.Token)
-	err = json.Unmarshal([]byte(tokenString), newToken)
+	err := json.Unmarshal([]byte(tokenString), newToken)
 	if err != nil {
 		fs.Debugf(ts.name, "Failed to parse token out of config file: %v", err)
 		return false
 	}
+
 	if !newToken.Valid() {
 		fs.Debugf(ts.name, "Loaded invalid token from config file - ignoring")
-		return false
+	} else {
+		fs.Debugf(ts.name, "Loaded fresh token from config file")
+		changed = true
 	}
-	fs.Debugf(ts.name, "Loaded fresh token from config file")
-	ts.token = newToken
-	ts.tokenSource = nil // invalidate since we changed the token
-	return true
+	if newToken.RefreshToken != "" && newToken.RefreshToken != ts.token.RefreshToken {
+		fs.Debugf(ts.name, "Loaded new refresh token from config file")
+		changed = true
+	}
+
+	if changed {
+		ts.token = newToken
+		ts.tokenSource = nil // invalidate since we changed the token
+	}
+	return changed
 }
 
 // Token returns a token or an error.
@@ -218,6 +224,10 @@ func (ts *TokenSource) Token() (*oauth2.Token, error) {
 		if !ts.token.Valid() {
 			if ts.reReadToken() {
 				changed = true
+			} else if ts.token.RefreshToken == "" {
+				return nil, fserrors.FatalError(
+					fmt.Errorf("token expired and there's no refresh token - manually refresh with \"rclone config reconnect %s:\"", ts.name),
+				)
 			}
 		}
 
@@ -453,19 +463,59 @@ Execute the following on the machine with the web browser (same rclone
 version recommended):
 
 `)
-			if changed {
-				fmt.Printf("\trclone authorize %q -- %q %q\n", id, oauthConfig.ClientID, oauthConfig.ClientSecret)
+			// Find the configuration
+			ri, err := fs.Find(id)
+			if err != nil {
+				return errors.Wrap(err, "oauthutil authorize")
+			}
+			// Find the overridden options
+			inM := ri.Options.NonDefault(m)
+			delete(inM, config.ConfigToken) // delete token as we are refreshing it
+			for k, v := range inM {
+				fs.Debugf(nil, "sending %s = %q", k, v)
+			}
+			// Encode them into a string
+			mCopyString, err := inM.Encode()
+			if err != nil {
+				return errors.Wrap(err, "oauthutil authorize encode")
+			}
+			// Write what the user has to do
+			useNewFormat := len(mCopyString) > 0
+			if useNewFormat {
+				fmt.Printf("\trclone authorize %q %q\n", id, mCopyString)
 			} else {
 				fmt.Printf("\trclone authorize %q\n", id)
 			}
 			fmt.Println("\nThen paste the result below:")
-			code := config.ReadNonEmptyLine("result> ")
-			token := &oauth2.Token{}
-			err := json.Unmarshal([]byte(code), token)
-			if err != nil {
-				return err
+			// Read the updates to the config
+			var outM configmap.Simple
+			var token oauth2.Token
+			for {
+				outM = configmap.Simple{}
+				token = oauth2.Token{}
+				code := config.ReadNonEmptyLine("result> ")
+
+				if useNewFormat {
+					err = outM.Decode(code)
+				} else {
+					err = json.Unmarshal([]byte(code), &token)
+				}
+				if err == nil {
+					break
+				}
+
+				fmt.Printf("Couldn't decode response - try again (make sure you are using a matching version of rclone on both sides: %v\n", err)
 			}
-			return PutToken(name, m, token, true)
+
+			// Save the config updates
+			if useNewFormat {
+				for k, v := range outM {
+					m.Set(k, v)
+					fs.Debugf(nil, "received %s = %q", k, v)
+				}
+				return nil
+			}
+			return PutToken(name, m, &token, true)
 		}
 	}
 
@@ -532,14 +582,6 @@ version recommended):
 		return errors.Wrap(err, "failed to get token")
 	}
 
-	// Print code if we are doing a manual auth
-	if authorizeOnly {
-		result, err := json.Marshal(token)
-		if err != nil {
-			return errors.Wrap(err, "failed to marshal token")
-		}
-		fmt.Printf("Paste the following into your remote machine --->\n%s\n<---End paste\n", result)
-	}
 	return PutToken(name, m, token, true)
 }
 
@@ -639,6 +681,7 @@ func (s *authServer) Init() error {
 			http.Error(w, "State did not match - please try again", http.StatusForbidden)
 			return
 		}
+		fs.Debugf(nil, "Redirecting browser to: %s", s.authURL)
 		http.Redirect(w, req, s.authURL, http.StatusTemporaryRedirect)
 		return
 	})

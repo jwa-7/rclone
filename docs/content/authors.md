@@ -372,7 +372,7 @@ put them back in again.` >}}
   * Fred <fred@creativeprojects.tech>
   * Sébastien Gross <renard@users.noreply.github.com>
   * Maxime Suret <11944422+msuret@users.noreply.github.com>
-  * Caleb Case <caleb@storj.io>
+  * Caleb Case <caleb@storj.io> <calebcase@gmail.com>
   * Ben Zenker <imbenzenker@gmail.com>
   * Martin Michlmayr <tbm@cyrius.com>
   * Brandon McNama <bmcnama@pagerduty.com>
@@ -457,3 +457,31 @@ put them back in again.` >}}
   * Pau Rodriguez-Estivill <prodrigestivill@gmail.com>
   * Bob Pusateri <BobPusateri@users.noreply.github.com>
   * Alex JOST <25005220+dimejo@users.noreply.github.com>
+  * Alexey Tabakman <samosad.ru@gmail.com>
+  * David Sze <sze.david@gmail.com>
+  * cynthia kwok <cynthia.m.kwok@gmail.com>
+  * Ankur Gupta <agupta@egnyte.com>
+  * Miron Veryanskiy <MironVeryanskiy@gmail.com>
+  * K265 <k.265@qq.com>
+  * Vesnyx <Vesnyx@users.noreply.github.com>
+  * Dmitry Chepurovskiy <me@dm3ch.net>
+  * Rauno Ots <rauno.ots@cgi.com>
+  * Georg Neugschwandtner <georg.neugschwandtner@gmx.net>
+  * pvalls <polvallsrue@gmail.com>
+  * Robert Thomas <31854736+wolveix@users.noreply.github.com>
+  * Romeo Kienzler <romeo.kienzler@gmail.com>
+  * tYYGH <tYYGH@users.noreply.github.com>
+  * georne <77802995+georne@users.noreply.github.com>
+  * Maxwell Calman <mcalman@MacBook-Pro.local>
+  * Naveen Honest Raj <naveendurai19@gmail.com>
+  * Lucas Messenger <lmesseng@cisco.com>
+  * Manish Kumar <krmanish260@gmail.com>
+  * x0b <x0bdev@gmail.com>
+  * CERN through the CS3MESH4EOSC Project
+  * Nick Gaya <nicholasgaya+github@gmail.com>
+  * Ashok Gelal <401055+ashokgelal@users.noreply.github.com>
+  * Dominik Mydlil <dominik.mydlil@outlook.com>
+  * Nazar Mishturak <nazarmx@gmail.com>
+  * Ansh Mittal <iamAnshMittal@gmail.com>
+  * noabody <noabody@yahoo.com>
+  * OleFrost <82263101+olefrost@users.noreply.github.com>

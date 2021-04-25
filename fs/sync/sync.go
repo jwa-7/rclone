@@ -70,7 +70,7 @@ type syncCopyMove struct {
 	trackRenamesWg         sync.WaitGroup         // wg for background track renames
 	trackRenamesCh         chan fs.Object         // objects are pumped in here
 	renameCheck            []fs.Object            // accumulate files to check for rename here
-	compareCopyDest        fs.Fs                  // place to check for files to server-side copy
+	compareCopyDest        []fs.Fs                // place to check for files to server side copy
 	backupDir              fs.Fs                  // place to store overwrites/deletes
 	checkFirst             bool                   // if set run all the checkers before starting transfers
 }
@@ -155,7 +155,9 @@ func newSyncCopyMove(ctx context.Context, fdst, fsrc fs.Fs, deleteMode fs.Delete
 	// Input context - cancel this for graceful stop
 	s.inCtx, s.inCancel = context.WithCancel(s.ctx)
 	if s.noTraverse && s.deleteMode != fs.DeleteModeOff {
-		fs.Errorf(nil, "Ignoring --no-traverse with sync")
+		if !fi.HaveFilesFrom() {
+			fs.Errorf(nil, "Ignoring --no-traverse with sync")
+		}
 		s.noTraverse = false
 	}
 	s.trackRenamesStrategy, err = parseTrackRenamesStrategy(ci.TrackRenamesStrategy)
@@ -212,13 +214,13 @@ func newSyncCopyMove(ctx context.Context, fdst, fsrc fs.Fs, deleteMode fs.Delete
 			return nil, err
 		}
 	}
-	if ci.CompareDest != "" {
+	if len(ci.CompareDest) > 0 {
 		var err error
 		s.compareCopyDest, err = operations.GetCompareDest(ctx)
 		if err != nil {
 			return nil, err
 		}
-	} else if ci.CopyDest != "" {
+	} else if len(ci.CopyDest) > 0 {
 		var err error
 		s.compareCopyDest, err = operations.GetCopyDest(ctx, fdst)
 		if err != nil {
@@ -264,6 +266,9 @@ func (s *syncCopyMove) processError(err error) {
 			// Cancel the march and stop the pipes
 			s.inCancel()
 		}
+	} else if err == context.Canceled && s.inCtx.Err() != nil {
+		// Ignore context Canceled if we have called s.inCancel()
+		return
 	}
 	s.errorMu.Lock()
 	defer s.errorMu.Unlock()
@@ -890,7 +895,7 @@ func (s *syncCopyMove) run() error {
 	// Delete empty fsrc subdirectories
 	// if DoMove and --delete-empty-src-dirs flag is set
 	if s.DoMove && s.deleteEmptySrcDirs {
-		//delete empty subdirectories that were part of the move
+		// delete empty subdirectories that were part of the move
 		s.processError(s.deleteEmptyDirectories(s.ctx, s.fsrc, s.srcEmptyDirs))
 	}
 

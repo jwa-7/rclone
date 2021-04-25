@@ -110,6 +110,13 @@ for two reasons.  Firstly because it is only checked every
 !--vfs-cache-poll-interval!.  Secondly because open files cannot be
 evicted from the cache.
 
+You **should not** run two copies of rclone using the same VFS cache
+with the same or overlapping remotes if using !--vfs-cache-mode > off!.
+This can potentially cause data corruption if you do. You can work
+around this by giving each rclone its own cache hierarchy with
+!--cache-dir!. You don't need to worry about this if the remotes in
+use don't overlap.
+
 #### --vfs-cache-mode off
 
 In this mode (the default) the cache will read directly from the remote and write
@@ -252,4 +259,17 @@ The flag controls whether "fixup" is performed to satisfy the target.
 If the flag is not provided on the command line, then its default value depends
 on the operating system where rclone runs: "true" on Windows and macOS, "false"
 otherwise. If the flag is provided without a value, then it is "true".
+
+### Alternate report of used bytes
+
+Some backends, most notably S3, do not report the amount of bytes used.
+If you need this information to be available when running !df! on the
+filesystem, then pass the flag !--vfs-used-is-size! to rclone.
+With this flag set, instead of relying on the backend to report this
+information, rclone will scan the whole remote similar to !rclone size!
+and compute the total used space itself.
+
+_WARNING._ Contrary to !rclone size!, this flag ignores filters so that the
+result is accurate. However, this is very inefficient and may cost lots of API
+calls resulting in extra charges. Use it as a last resort and only with caching.
 `, "!", "`")

@@ -33,10 +33,11 @@ page](https://github.com/rclone/rclone).
 
 Now in your terminal
 
-    go get -u github.com/rclone/rclone
-    cd $GOPATH/src/github.com/rclone/rclone
+    git clone https://github.com/rclone/rclone.git
+    cd rclone
     git remote rename origin upstream
     git remote add origin git@github.com:YOURUSER/rclone.git
+    go build
 
 Make a branch to add your new feature
 
@@ -72,7 +73,7 @@ Make sure you
 
 When you are done with that
 
-    git push origin my-new-feature
+    git push -u origin my-new-feature
 
 Go to the GitHub website and click [Create pull
 request](https://help.github.com/articles/creating-a-pull-request/).
@@ -99,7 +100,7 @@ rclone's tests are run from the go testing framework, so at the top
 level you can run this to run all the tests.
 
     go test -v ./...
-    
+
 rclone contains a mixture of unit tests and integration tests.
 Because it is difficult (and in some respects pointless) to test cloud
 storage systems by mocking all their interfaces, rclone unit tests can
@@ -115,8 +116,8 @@ are skipped if `TestDrive:` isn't defined.
     cd backend/drive
     go test -v
 
-You can then run the integration tests which tests all of rclone's
-operations.  Normally these get run against the local filing system,
+You can then run the integration tests which test all of rclone's
+operations.  Normally these get run against the local file system,
 but they can be run against any of the remotes.
 
     cd fs/sync
@@ -127,7 +128,7 @@ but they can be run against any of the remotes.
     go test -v -remote TestDrive:
 
 If you want to use the integration test framework to run these tests
-all together with an HTML report and test retries then from the
+altogether with an HTML report and test retries then from the
 project root:
 
     go install github.com/rclone/rclone/fstest/test_all
@@ -202,7 +203,7 @@ for the flag help, the remainder is shown to the user in `rclone
 config` and is added to the docs with `make backenddocs`.
 
 The only documentation you need to edit are the `docs/content/*.md`
-files.  The MANUAL.*, rclone.1, web site, etc. are all auto generated
+files.  The `MANUAL.*`, `rclone.1`, web site, etc. are all auto generated
 from those during the release process.  See the `make doc` and `make
 website` targets in the Makefile if you are interested in how.  You
 don't need to run these when adding a feature.
@@ -265,7 +266,7 @@ rclone uses the [go
 modules](https://tip.golang.org/cmd/go/#hdr-Modules__module_versions__and_more)
 support in go1.11 and later to manage its dependencies.
 
-rclone can be built with modules outside of the GOPATH
+rclone can be built with modules outside of the `GOPATH`.
 
 To add a dependency `github.com/ncw/new_dependency` see the
 instructions below.  These will fetch the dependency and add it to
@@ -333,8 +334,8 @@ Getting going
   * Try to implement as many optional methods as possible as it makes the remote more usable.
   * Use lib/encoder to make sure we can encode any path name and `rclone info` to help determine the encodings needed
     * `rclone purge -v TestRemote:rclone-info`
-    * `rclone info --remote-encoding None -vv --write-json remote.json TestRemote:rclone-info`
-    * `go run cmd/info/internal/build_csv/main.go -o remote.csv remote.json`
+    * `rclone test info --all --remote-encoding None -vv --write-json remote.json TestRemote:rclone-info`
+    * `go run cmd/test/info/internal/build_csv/main.go -o remote.csv remote.json`
     * open `remote.csv` in a spreadsheet and examine
 
 Unit tests
@@ -400,7 +401,7 @@ Usage
    - If this variable doesn't exist, plugin support is disabled.
    - Plugins must be compiled against the exact version of rclone to work.
      (The rclone used during building the plugin must be the same as the source of rclone)
-     
+
 Building
 
 To turn your existing additions into a Go plugin, move them to an external repository

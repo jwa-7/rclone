@@ -71,7 +71,7 @@ const (
 func init() {
 	// DaemonTimeout defaults to non zero for macOS
 	if runtime.GOOS == "darwin" {
-		DefaultOpt.DaemonTimeout = 15 * time.Minute
+		DefaultOpt.DaemonTimeout = 10 * time.Minute
 	}
 }
 
@@ -179,15 +179,15 @@ is an **empty** **existing** directory:
 
 On Windows you can start a mount in different ways. See [below](#mounting-modes-on-windows)
 for details. The following examples will mount to an automatically assigned drive,
-to specific drive letter |X:|, to path |C:\path\to\nonexistent\directory|
-(which must be **non-existent** subdirectory of an **existing** parent directory or drive,
+to specific drive letter |X:|, to path |C:\path\parent\mount|
+(where parent directory or drive must exist, and mount must **not** exist,
 and is not supported when [mounting as a network drive](#mounting-modes-on-windows)), and
 the last example will mount as network share |\\cloud\remote| and map it to an
 automatically assigned drive:
 
     rclone @ remote:path/to/files *
     rclone @ remote:path/to/files X:
-    rclone @ remote:path/to/files C:\path\to\nonexistent\directory
+    rclone @ remote:path/to/files C:\path\parent\mount
     rclone @ remote:path/to/files \\cloud\remote
 
 When the program ends while in foreground mode, either via Ctrl+C or receiving
@@ -241,14 +241,14 @@ and experience unexpected program errors, freezes or other issues, consider moun
 as a network drive instead.
 
 When mounting as a fixed disk drive you can either mount to an unused drive letter,
-or to a path - which must be **non-existent** subdirectory of an **existing** parent
+or to a path representing a **non-existent** subdirectory of an **existing** parent
 directory or drive. Using the special value |*| will tell rclone to
 automatically assign the next available drive letter, starting with Z: and moving backward.
 Examples:
 
     rclone @ remote:path/to/files *
     rclone @ remote:path/to/files X:
-    rclone @ remote:path/to/files C:\path\to\nonexistent\directory
+    rclone @ remote:path/to/files C:\path\parent\mount
     rclone @ remote:path/to/files X:
 
 Option |--volname| can be used to set a custom volume name for the mounted
@@ -321,26 +321,59 @@ Note that the mapping of permissions is not always trivial, and the result
 you see in Windows Explorer may not be exactly like you expected.
 For example, when setting a value that includes write access, this will be
 mapped to individual permissions "write attributes", "write data" and "append data",
-but not "write extended attributes" (WinFsp does not support extended attributes,
-see [this](https://github.com/billziss-gh/winfsp/wiki/NTFS-Compatibility)).
-Windows will then show this as basic permission "Special" instead of "Write",
-because "Write" includes the "write extended attributes" permission.
+but not "write extended attributes". Windows will then show this as basic
+permission "Special" instead of "Write", because "Write" includes the
+"write extended attributes" permission.
+
+If you set POSIX permissions for only allowing access to the owner, using
+|--file-perms 0600 --dir-perms 0700|, the user group and the built-in "Everyone"
+group will still be given some special permissions, such as "read attributes"
+and "read permissions", in Windows. This is done for compatibility reasons,
+e.g. to allow users without additional permissions to be able to read basic
+metadata about files like in UNIX. One case that may arise is that other programs
+(incorrectly) interprets this as the file being accessible by everyone. For example
+an SSH client may warn about "unprotected private key file".
+
+WinFsp 2021 (version 1.9) introduces a new FUSE option "FileSecurity",
+that allows the complete specification of file security descriptors using
+[SDDL](https://docs.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-string-format).
+With this you can work around issues such as the mentioned "unprotected private key file"
+by specifying |-o FileSecurity="D:P(A;;FA;;;OW)"|, for file all access (FA) to the owner (OW).
 
 #### Windows caveats
 
-Note that drives created as Administrator are not visible by other
-accounts (including the account that was elevated as
-Administrator). So if you start a Windows drive from an Administrative
-Command Prompt and then try to access the same drive from Explorer
-(which does not run as Administrator), you will not be able to see the
-new drive.
+Drives created as Administrator are not visible to other accounts,
+not even an account that was elevated to Administrator with the
+User Account Control (UAC) feature. A result of this is that if you mount
+to a drive letter from a Command Prompt run as Administrator, and then try
+to access the same drive from Windows Explorer (which does not run as
+Administrator), you will not be able to see the mounted drive.
 
-The easiest way around this is to start the drive from a normal
-command prompt. It is also possible to start a drive from the SYSTEM
-account (using [the WinFsp.Launcher
-infrastructure](https://github.com/billziss-gh/winfsp/wiki/WinFsp-Service-Architecture))
-which creates drives accessible for everyone on the system or
-alternatively using [the nssm service manager](https://nssm.cc/usage).
+If you don't need to access the drive from applications running with
+administrative privileges, the easiest way around this is to always
+create the mount from a non-elevated command prompt.
+
+To make mapped drives available to the user account that created them
+regardless if elevated or not, there is a special Windows setting called
+[linked connections](https://docs.microsoft.com/en-us/troubleshoot/windows-client/networking/mapped-drives-not-available-from-elevated-command#detail-to-configure-the-enablelinkedconnections-registry-entry)
+that can be enabled.
+
+It is also possible to make a drive mount available to everyone on the system,
+by running the process creating it as the built-in SYSTEM account.
+There are several ways to do this: One is to use the command-line
+utility [PsExec](https://docs.microsoft.com/en-us/sysinternals/downloads/psexec),
+from Microsoft's Sysinternals suite, which has option |-s| to start
+processes as the SYSTEM account. Another alternative is to run the mount
+command from a Windows Scheduled Task, or a Windows Service, configured
+to run as the SYSTEM account. A third alternative is to use the
+[WinFsp.Launcher infrastructure](https://github.com/billziss-gh/winfsp/wiki/WinFsp-Service-Architecture)).
+Note that when running rclone as another user, it will not use
+the configuration file from your profile unless you tell it to
+with the [|--config|](https://rclone.org/docs/#config-config-file) option.
+Read more in the [install documentation](https://rclone.org/install/).
+
+Note that mapping to a directory path, instead of a drive letter,
+does not suffer from the same limitations.
 
 ### Limitations
 
@@ -348,7 +381,7 @@ Without the use of |--vfs-cache-mode| this can only write files
 sequentially, it can only seek when reading.  This means that many
 applications won't work with their files on an rclone mount without
 |--vfs-cache-mode writes| or |--vfs-cache-mode full|.
-See the [File Caching](#file-caching) section for more info.
+See the [VFS File Caching](#vfs-file-caching) section for more info.
 
 The bucket based remotes (e.g. Swift, S3, Google Compute Storage, B2,
 Hubic) do not support the concept of empty directories, so empty
@@ -363,7 +396,7 @@ File systems expect things to be 100% reliable, whereas cloud storage
 systems are a long way from 100% reliable. The rclone sync/copy
 commands cope with this with lots of retries.  However rclone @
 can't use retries in the same way without making local copies of the
-uploads. Look at the [file caching](#file-caching)
+uploads. Look at the [VFS File Caching](#vfs-file-caching)
 for solutions to make @ more reliable.
 
 ### Attribute caching
